@@ -4,8 +4,11 @@ on:
     paths-ignore:
     - '**.md'
     - '**.png'
+    branches:
+    - main
 jobs:
   ci:
+    name: Continuous Deployment Pipeline
     runs-on: ubuntu-20.04
     steps:
     - env:
