@@ -20,38 +20,21 @@ depends_on = None
 
 
 def upgrade():
-    op.execute("DROP MATERIALIZED VIEW IF EXISTS siri_agg_velocity_stats")
-    op.execute("""
-        create materialized view siri_agg_velocity_stats as
-        WITH HourlyAverages AS (
-            SELECT
-                trunc(lon * 500 + .5)/500 AS lonRound,
-                trunc(lat * 500 + .5)/500 AS latRound,
-                DATE(recorded_at_time) AS date,
-                DATE_PART('hour', recorded_at_time) AS hour,
-                AVG(velocity) AS hourly_avg,
-                COUNT(1) as sample_number
-            FROM siri_vehicle_location svl
-            WHERE velocity > 0 AND velocity < 200 AND lon > 0 and lat > 0
-            GROUP BY lonRound, latRound, date, hour
-            having COUNT(1) > 5
-        )
-        SELECT
-            lonRound,
-            latRound,
-            date,
-            STDDEV(hourly_avg) AS stddev_hourly_avg,
-            AVG(hourly_avg) AS avg_hourly_avg,
-            SUM(sample_number) as sample_number,
-            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY hourly_avg) AS median_hourly_avg
-        FROM HourlyAverages
-        GROUP BY lonRound, latRound, date;
-    """)
-    op.execute("create index idx_siri_agg_velocity_stats_lonRound_latRound on siri_agg_velocity_stats (lonRound, latRound)")
-    op.execute("create index idx_siri_agg_velocity_stats_date on siri_agg_velocity_stats (date)")
-    op.execute("REFRESH MATERIALIZED VIEW siri_agg_velocity_stats")
-    # This unique index allows to refresh the materialized view concurrently (it was created manually)
-    op.execute("create unique index siri_agg_velocity_stats_uniq_idx on siri_agg_velocity_stats (lonRound, latRound, date);")
+    op.create_table('siri_agg_velocity_stats',
+        sa.Column('lon_round', sa.Float(), nullable=False),
+        sa.Column('lat_round', sa.Float(), nullable=False),
+        sa.Column('date', sa.Date(), nullable=False),
+        sa.Column('stddev_hourly_avg', sa.Float(), nullable=True),
+        sa.Column('avg_hourly_avg', sa.Float(), nullable=True),
+        sa.Column('sample_number', sa.Integer(), nullable=True),
+        sa.Column('median_hourly_avg', sa.Float(), nullable=True),
+        sa.Column('last_used', sa.DateTime(), nullable=False),
+        sa.PrimaryKeyConstraint('lon_round', 'lat_round', 'date')
+    )
+    op.create_index(op.f('ix_siri_agg_velocity_stats_date'), 'siri_agg_velocity_stats', ['date'], unique=False)
+    op.create_index(op.f('ix_siri_agg_velocity_stats_lon_round_lat_round'), 'siri_agg_velocity_stats', ['lon_round', 'lat_round'], unique=False)
+    op.create_index(op.f('ix_siri_agg_velocity_stats_last_used'), 'siri_agg_velocity_stats', ['last_used'], unique=False)
 
 def downgrade():
-    op.execute("drop materialized view if exists siri_agg_velocity_stats")
+    op.drop_table('siri_agg_velocity_stats')
+    pass
