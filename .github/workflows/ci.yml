@@ -4,92 +4,97 @@ on:
     paths-ignore:
     - '**.md'
     - '**.png'
+env:
+  DOCKER_APP_IMAGE_NAME: "ghcr.io/hasadna/open-bus-stride-db/open-bus-stride-db"
+  DOCKER_BACKUP_IMAGE_NAME: "ghcr.io/hasadna/open-bus-stride-db/open-bus-stride-db-backup"
 jobs:
   ci:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
-    - env:
-        DOCKER_APP_IMAGE_NAME: "ghcr.io/hasadna/open-bus-stride-db/open-bus-stride-db"
-        DOCKER_BACKUP_IMAGE_NAME: "ghcr.io/hasadna/open-bus-stride-db/open-bus-stride-db-backup"
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - uses: actions/checkout@v6
+    - uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ github.token }}
+    - uses: docker/build-push-action@v6
+      with:
+        push: true
+        tags: |
+          ${{ format('{0}:{1}', env.DOCKER_APP_IMAGE_NAME, github.sha) }}
+          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && format('{0}:latest', env.DOCKER_APP_IMAGE_NAME) || '' }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    - uses: docker/build-push-action@v6
+      with:
+        context: backup
+        push: true
+        tags: |
+          ${{ format('{0}:{1}', env.DOCKER_BACKUP_IMAGE_NAME, github.sha) }}
+          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && format('{0}:latest', env.DOCKER_BACKUP_IMAGE_NAME) || '' }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    - run: |
+        set -euo pipefail
+        docker run -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v `pwd`/.data/db:/var/lib/postgresql/data -d postgres:13
+        sleep 5
+        docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost ${DOCKER_APP_IMAGE_NAME}:${{ github.sha }}
+        docker build -t docgen -f docgen.Dockerfile .
+        docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost \
+          -v "`pwd`/docgen_output:/output" \
+          --entrypoint python docgen bin/docgen.py /output
+        git config user.name "open-bus-stride-db-ci"
+        git config user.email "open-bus-stride-db-ci@localhost"
+        if ! diff docgen_output/DATA_MODEL.md ./DATA_MODEL.md || ! diff docgen_output/dbschema.png ./dbschema.png; then
+          cp -f docgen_output/DATA_MODEL.md ./DATA_MODEL.md
+          cp -f docgen_output/dbschema.png ./dbschema.png
+          git add ./DATA_MODEL.md && git add ./dbschema.png
+          git commit -m "automatic update of the data model documentation"
+          git push
+        fi
+    - if: ${{ github.ref == 'refs/heads/main' }}
+      env:
         HASADNA_K8S_DEPLOY_KEY: ${{ secrets.HASADNA_K8S_DEPLOY_KEY }}
         SIRI_ETL_DEPLOY_KEY: ${{ secrets.SIRI_ETL_DEPLOY_KEY }}
         STRIDE_API_DEPLOY_KEY: ${{ secrets.STRIDE_API_DEPLOY_KEY }}
         STRIDE_ETL_DEPLOY_KEY: ${{ secrets.STRIDE_ETL_DEPLOY_KEY }}
       run: |
-        curl -s https://raw.githubusercontent.com/OriHoch/uumpa-ci-toolbox/65a0704332e63d51f63981dbb25cd83682dc4078/bin/github_actions_install.sh \
-          | bash -s 65a0704332e63d51f63981dbb25cd83682dc4078 OriHoch/uumpa-ci-toolbox &&\
-        uci github actions self-checkout --config-user-name "open-bus-stride-db-ci" &&\
-        uci github actions docker-login &&\
-        uci docker build-cache \
-          --cache-from "${DOCKER_APP_IMAGE_NAME}:latest" \
-          -- -t app . &&\
-        uci docker tag-push \
-          --source-tag-name app \
-          --push-tag-name "${DOCKER_APP_IMAGE_NAME}:${GITHUB_SHA}" &&\
-        uci docker build-cache \
-          --cache-from "${DOCKER_BACKUP_IMAGE_NAME}:latest" \
-          -- -t backup backup &&\
-        uci docker tag-push \
-          --source-tag-name backup \
-          --push-tag-name "${DOCKER_BACKUP_IMAGE_NAME}:${GITHUB_SHA}" &&\
-        docker run -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v `pwd`/.data/db:/var/lib/postgresql/data -d postgres:13 &&\
-        sleep 5 &&\
-        docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost app &&\
-        docker build -t docgen -f docgen.Dockerfile . &&\
-        docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost \
-          -v "`pwd`/docgen_output:/output" \
-          --entrypoint python docgen bin/docgen.py /output &&\
-        if ! diff docgen_output/DATA_MODEL.md ./DATA_MODEL.md || ! diff docgen_output/dbschema.png ./dbschema.png; then
-          cp -f docgen_output/DATA_MODEL.md ./DATA_MODEL.md &&\
-          cp -f docgen_output/dbschema.png ./dbschema.png &&\
-          git add ./DATA_MODEL.md && git add ./dbschema.png &&\
-          git commit -m "automatic update of the data model documentation" &&\
-          git push
-        fi &&\
-        if [ "$(uci github actions get-branch-name)" == "main" ]; then
-          uci docker tag-push \
-            --source-tag-name app \
-            --push-tag-name "${DOCKER_APP_IMAGE_NAME}:latest" &&\
-          uci docker tag-push \
-            --source-tag-name backup \
-            --push-tag-name "${DOCKER_BACKUP_IMAGE_NAME}:latest" &&\
-          if ! git log -1 --pretty=format:"%s" | grep -- --no-deploy; then
-            cd `mktemp -d` &&\
-            echo "${HASADNA_K8S_DEPLOY_KEY}" > hasadna_k8s_deploy_key &&\
-            chmod 400 hasadna_k8s_deploy_key &&\
-            export GIT_SSH_COMMAND="ssh -i `pwd`/hasadna_k8s_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" &&\
-            git clone git@github.com:hasadna/hasadna-k8s.git &&\
-            cd hasadna-k8s &&\
-            python update_yaml.py '{"strideDbAppImage":"'"${DOCKER_APP_IMAGE_NAME}:${GITHUB_SHA}"'"}' apps/openbus/values-hasadna-auto-updated.yaml &&\
-            git config --global user.name "Open Bus Stride DB CI" &&\
-            git config --global user.email "open-bus-stride-db-ci@localhost" &&\
-            git add apps/openbus/values-hasadna-auto-updated.yaml && git commit -m "automatic update of open bus stride db" &&\
-            git push origin master &&\
-            echo "${SIRI_ETL_DEPLOY_KEY}" > siri_etl_deploy_key &&\
-            chmod 400 siri_etl_deploy_key &&\
-            export GIT_SSH_COMMAND="ssh -i `pwd`/siri_etl_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" &&\
-            git clone git@github.com:hasadna/open-bus-siri-etl.git &&\
-            cd open-bus-siri-etl &&\
-            bin/update_stride_db_dependencies.py "${GITHUB_SHA}" &&\
-            git commit -m "automatic update of open bus stride db dependencies" &&\
-            git push origin main &&\
-            echo "${STRIDE_API_DEPLOY_KEY}" > stride_api_deploy_key &&\
-            chmod 400 stride_api_deploy_key &&\
-            export GIT_SSH_COMMAND="ssh -i `pwd`/stride_api_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" &&\
-            git clone git@github.com:hasadna/open-bus-stride-api.git &&\
-            cd open-bus-stride-api &&\
-            bin/update_stride_db_dependencies.py "${GITHUB_SHA}" &&\
-            git commit -m "automatic update of open bus stride db dependencies" &&\
-            git push origin main &&\
-            echo "${STRIDE_ETL_DEPLOY_KEY}" > stride_etl_deploy_key &&\
-            chmod 400 stride_etl_deploy_key &&\
-            export GIT_SSH_COMMAND="ssh -i `pwd`/stride_etl_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no" &&\
-            git clone git@github.com:hasadna/open-bus-stride-etl.git &&\
-            cd open-bus-stride-etl &&\
-            echo "${GITHUB_SHA}" > stride-db-latest-commit.txt &&\
-            git add stride-db-latest-commit.txt &&\
-            git commit -m "automatic update of open bus stride db dependencies" &&\
+        set -euo pipefail
+        if ! git log -1 --pretty=format:"%s" | grep -- --no-deploy; then
+            cd `mktemp -d`
+            echo "${HASADNA_K8S_DEPLOY_KEY}" > hasadna_k8s_deploy_key
+            chmod 400 hasadna_k8s_deploy_key
+            export GIT_SSH_COMMAND="ssh -i `pwd`/hasadna_k8s_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+            git clone git@github.com:hasadna/hasadna-k8s.git
+            cd hasadna-k8s
+            python update_yaml.py '{"strideDbAppImage":"'"${DOCKER_APP_IMAGE_NAME}:${GITHUB_SHA}"'"}' apps/openbus/values-hasadna-auto-updated.yaml
+            git config --global user.name "Open Bus Stride DB CI"
+            git config --global user.email "open-bus-stride-db-ci@localhost"
+            git add apps/openbus/values-hasadna-auto-updated.yaml && git commit -m "automatic update of open bus stride db"
+            git push origin master
+            echo "${SIRI_ETL_DEPLOY_KEY}" > siri_etl_deploy_key
+            chmod 400 siri_etl_deploy_key
+            export GIT_SSH_COMMAND="ssh -i `pwd`/siri_etl_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+            git clone git@github.com:hasadna/open-bus-siri-etl.git
+            cd open-bus-siri-etl
+            bin/update_stride_db_dependencies.py "${GITHUB_SHA}"
+            git commit -m "automatic update of open bus stride db dependencies"
+            git push origin main
+            echo "${STRIDE_API_DEPLOY_KEY}" > stride_api_deploy_key
+            chmod 400 stride_api_deploy_key
+            export GIT_SSH_COMMAND="ssh -i `pwd`/stride_api_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+            git clone git@github.com:hasadna/open-bus-stride-api.git
+            cd open-bus-stride-api
+            bin/update_stride_db_dependencies.py "${GITHUB_SHA}"
+            git commit -m "automatic update of open bus stride db dependencies"
+            git push origin main
+            echo "${STRIDE_ETL_DEPLOY_KEY}" > stride_etl_deploy_key
+            chmod 400 stride_etl_deploy_key
+            export GIT_SSH_COMMAND="ssh -i `pwd`/stride_etl_deploy_key -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+            git clone git@github.com:hasadna/open-bus-stride-etl.git
+            cd open-bus-stride-etl
+            echo "${GITHUB_SHA}" > stride-db-latest-commit.txt
+            git add stride-db-latest-commit.txt
+            git commit -m "automatic update of open bus stride db dependencies"
             git push origin main
           fi
-        fi
