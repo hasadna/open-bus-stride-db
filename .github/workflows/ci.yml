@@ -58,7 +58,7 @@ jobs:
       env:
         HASADNA_K8S_DEPLOY_KEY: ${{ secrets.HASADNA_K8S_DEPLOY_KEY }}
         SIRI_ETL_DEPLOY_KEY: ${{ secrets.SIRI_ETL_DEPLOY_KEY }}
-        STRIDE_API_DEPLOY_KEY: ${{ secrets.STRIDE_API_DEPLOY_KEY }}
+        STRIDE_API_DEPLOY_KEY: ${{ secrets.OPEN_BUS_STRIDE_API_DEPLOY_KEY }}
         STRIDE_ETL_DEPLOY_KEY: ${{ secrets.STRIDE_ETL_DEPLOY_KEY }}
       run: |
         set -euo pipefail
