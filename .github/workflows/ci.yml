@@ -26,20 +26,21 @@ jobs:
           ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && format('{0}:latest', env.DOCKER_APP_IMAGE_NAME) || '' }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
-    - uses: docker/build-push-action@v6
-      with:
-        context: backup
-        push: true
-        tags: |
-          ${{ format('{0}:{1}', env.DOCKER_BACKUP_IMAGE_NAME, github.sha) }}
-          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && format('{0}:latest', env.DOCKER_BACKUP_IMAGE_NAME) || '' }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+#    - uses: docker/build-push-action@v6
+#      with:
+#        context: backup
+#        push: true
+#        tags: |
+#          ${{ format('{0}:{1}', env.DOCKER_BACKUP_IMAGE_NAME, github.sha) }}
+#          ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && format('{0}:latest', env.DOCKER_BACKUP_IMAGE_NAME) || '' }}
+#        cache-from: type=gha
+#        cache-to: type=gha,mode=max
     - run: |
         set -euo pipefail
-        docker run -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v `pwd`/.data/db:/var/lib/postgresql/data -d postgres:13
+        docker run -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v `pwd`/.data/db:/var/lib/postgresql/data -d postgres:14
         sleep 5
         docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost ${DOCKER_APP_IMAGE_NAME}:${{ github.sha }}
+        docker tag ${DOCKER_APP_IMAGE_NAME}:${{ github.sha }} app
         docker build -t docgen -f docgen.Dockerfile .
         docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost \
           -v "`pwd`/docgen_output:/output" \
