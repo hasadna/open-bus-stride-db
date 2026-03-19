@@ -89,6 +89,7 @@ python bin/siri_vehicle_location_timescaledb_migration.py backfill --from 2026-0
 python bin/siri_vehicle_location_timescaledb_migration.py validate-range --from 2026-01-01T00:00:00 --to 2026-02-01T00:00:00 --fail-on-mismatch
 python bin/siri_vehicle_location_timescaledb_migration.py cutover
 python bin/siri_vehicle_location_timescaledb_migration.py create-lon-lat-indexes
+# optional, only on Timescale builds that support compression
 python bin/siri_vehicle_location_timescaledb_migration.py add-compression-policy --compress-after "30 days"
 ```
 
@@ -101,7 +102,7 @@ Available commands:
 * `cutover` - swap `siri_vehicle_location_timescaledb` into production and drop the incompatible `id`-only foreign keys from `siri_ride` and `siri_ride_stop`
 * `rollback` - restore the original table if cutover needs to be reverted
 * `create-lon-lat-indexes` - rebuild the optional lon/lat indexes concurrently after cutover
-* `add-compression-policy` - keep older chunks compressed in the same DB
+* `add-compression-policy` - optionally keep older chunks compressed in the same DB when the Timescale build supports compression
 
 ### Make changess to the DB model
 

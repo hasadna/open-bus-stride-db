@@ -52,7 +52,7 @@ def upgrade():
         ),
         sa.Column('siri_snapshot_id', sa.Integer(), nullable=True),
         sa.Column('siri_ride_stop_id', sa.BigInteger(), nullable=True),
-        sa.Column('recorded_at_time', sa.DateTime(), nullable=False),
+        sa.Column('recorded_at_time', sa.DateTime(timezone=True), nullable=False),
         sa.Column('lon', sa.Float(), nullable=True),
         sa.Column('lat', sa.Float(), nullable=True),
         sa.Column('bearing', sa.Integer(), nullable=True),
@@ -75,14 +75,6 @@ def upgrade():
             chunk_time_interval => INTERVAL '1 day',
             migrate_data => FALSE,
             if_not_exists => TRUE
-        )
-    """))
-    op.execute(dedent("""
-        ALTER TABLE public.siri_vehicle_location_timescaledb
-        SET (
-            timescaledb.compress,
-            timescaledb.compress_segmentby = 'siri_snapshot_id, siri_ride_stop_id',
-            timescaledb.compress_orderby = 'recorded_at_time DESC, id DESC'
         )
     """))
 

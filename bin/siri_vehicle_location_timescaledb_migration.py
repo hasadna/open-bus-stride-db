@@ -129,13 +129,27 @@ def run_create_lon_lat_indexes(_args):
 
 
 def run_add_compression_policy(args):
-    run_query("""
-        SELECT add_compression_policy(
-            'public.siri_vehicle_location',
-            compress_after => CAST(:compress_after AS interval),
-            if_not_exists => TRUE
-        )
-    """, {'compress_after': args.compress_after})
+    try:
+        run_query("""
+            ALTER TABLE public.siri_vehicle_location
+            SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = 'siri_snapshot_id, siri_ride_stop_id',
+                timescaledb.compress_orderby = 'recorded_at_time DESC, id DESC'
+            )
+        """)
+        run_query("""
+            SELECT add_compression_policy(
+                'public.siri_vehicle_location',
+                compress_after => CAST(:compress_after AS interval),
+                if_not_exists => TRUE
+            )
+        """, {'compress_after': args.compress_after})
+    except sqlalchemy.exc.DBAPIError as exc:
+        raise SystemExit(
+            "compression is not supported by the current TimescaleDB build/license; "
+            "skip add-compression-policy or use a build that supports compression"
+        ) from exc
     print(f'compression policy ensured: {args.compress_after}')
 
 
