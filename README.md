@@ -85,12 +85,10 @@ Typical flow:
 ```bash
 . .env && alembic upgrade head
 python bin/siri_vehicle_location_timescaledb_migration.py status
-python bin/siri_vehicle_location_timescaledb_migration.py backfill --from 2026-01-01T00:00:00 --to 2026-02-01T00:00:00 --batch-hours 24 --sleep-seconds 1 --fail-on-mismatch
+python bin/siri_vehicle_location_timescaledb_migration.py backfill --from 2026-03-01T00:00:00 --to 2026-03-21T00:00:00 --batch-hours 24 --sleep-seconds 1 --fail-on-mismatch
 python bin/siri_vehicle_location_timescaledb_migration.py validate-range --from 2026-01-01T00:00:00 --to 2026-02-01T00:00:00 --fail-on-mismatch
 python bin/siri_vehicle_location_timescaledb_migration.py cutover
 python bin/siri_vehicle_location_timescaledb_migration.py create-lon-lat-indexes
-# optional, only on Timescale builds that support compression
-python bin/siri_vehicle_location_timescaledb_migration.py add-compression-policy --compress-after "30 days"
 ```
 
 Available commands:
