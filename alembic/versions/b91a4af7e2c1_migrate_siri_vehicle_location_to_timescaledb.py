@@ -171,15 +171,15 @@ def upgrade():
             $$;
         """),
         dedent(f"""
-            CREATE OR REPLACE FUNCTION public.copy_siri_vehicle_location_range(range_start timestamp, range_end timestamp)
+            CREATE OR REPLACE FUNCTION public.copy_siri_vehicle_location_range(range_start timestamptz, range_end timestamptz)
             RETURNS TABLE (
                 source_count bigint,
                 inserted_count bigint,
                 target_count bigint,
-                source_min_recorded_at_time timestamp,
-                source_max_recorded_at_time timestamp,
-                target_min_recorded_at_time timestamp,
-                target_max_recorded_at_time timestamp,
+                source_min_recorded_at_time timestamptz,
+                source_max_recorded_at_time timestamptz,
+                target_min_recorded_at_time timestamptz,
+                target_max_recorded_at_time timestamptz,
                 counts_match boolean
             )
             LANGUAGE plpgsql
@@ -232,14 +232,14 @@ def upgrade():
             $$;
         """),
         dedent(f"""
-            CREATE OR REPLACE FUNCTION public.validate_siri_vehicle_location_range(range_start timestamp, range_end timestamp)
+            CREATE OR REPLACE FUNCTION public.validate_siri_vehicle_location_range(range_start timestamptz, range_end timestamptz)
             RETURNS TABLE (
                 source_count bigint,
                 target_count bigint,
-                source_min_recorded_at_time timestamp,
-                source_max_recorded_at_time timestamp,
-                target_min_recorded_at_time timestamp,
-                target_max_recorded_at_time timestamp,
+                source_min_recorded_at_time timestamptz,
+                source_max_recorded_at_time timestamptz,
+                target_min_recorded_at_time timestamptz,
+                target_max_recorded_at_time timestamptz,
                 counts_match boolean
             )
             LANGUAGE sql
@@ -286,7 +286,9 @@ def downgrade():
     op.execute("SELECT public.disable_siri_vehicle_location_sync_trigger()")
     op.execute("DROP FUNCTION IF EXISTS public.rollback_siri_vehicle_location_timescaledb_cutover()")
     op.execute("DROP FUNCTION IF EXISTS public.cutover_siri_vehicle_location_to_timescaledb()")
+    op.execute("DROP FUNCTION IF EXISTS public.validate_siri_vehicle_location_range(timestamptz, timestamptz)")
     op.execute("DROP FUNCTION IF EXISTS public.validate_siri_vehicle_location_range(timestamp, timestamp)")
+    op.execute("DROP FUNCTION IF EXISTS public.copy_siri_vehicle_location_range(timestamptz, timestamptz)")
     op.execute("DROP FUNCTION IF EXISTS public.copy_siri_vehicle_location_range(timestamp, timestamp)")
     op.execute("DROP FUNCTION IF EXISTS public.rename_constraint_if_exists(regclass, text, text)")
     op.execute("DROP FUNCTION IF EXISTS public.rename_index_if_exists(text, text)")

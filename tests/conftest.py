@@ -2,7 +2,6 @@ import os
 import time
 import importlib
 import subprocess
-import shutil
 
 from open_bus_stride_db import db as db_module
 
@@ -11,28 +10,24 @@ import pytest
 
 @pytest.fixture(scope="session")
 def get_db():
-    if shutil.which("docker") is None:
-        pytest.skip("docker is required for database tests")
-    container_name = os.getenv("TEST_POSTGRES_CONTAINER_NAME", "open-bus-stride-db-test-postgres")
-    image_name = os.getenv("TEST_POSTGRES_IMAGE", "timescale/timescaledb:2.19.3-pg14-oss")
     create_container = True
     if os.getenv("KEEP_TEST_POSTGRES_CONTAINER") == "yes":
         if subprocess.call([
-            "docker", "container", "inspect", container_name
+            "docker", "container", "inspect", "open-bus-stride-db-test-postgres"
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL) == 0:
             create_container = False
     if create_container:
         subprocess.call([
-            "docker", "rm", "-f", container_name
+            "docker", "rm", "-f", "open-bus-stride-db-test-postgres"
         ])
         subprocess.check_call([
-            "docker", "run", "--name", container_name,
+            "docker", "run", "--name", "open-bus-stride-db-test-postgres",
             "-e", "POSTGRES_USER=postgres",
             "-e", "POSTGRES_PASSWORD=123456",
             "-p", "5432:5432",
-            "-d", image_name
+            "-d", "timescale/timescaledb:2.19.3-pg14-oss"
         ])
-        time.sleep(5)
+        time.sleep(3)
 
     def get_db_(poolclass_nullpool=False):
         os.environ["SQLALCHEMY_URL"] = "postgresql://postgres:123456@localhost"
@@ -48,5 +43,5 @@ def get_db():
     finally:
         if os.getenv("KEEP_TEST_POSTGRES_CONTAINER") != "yes":
             subprocess.call([
-                "docker", "rm", "-f", container_name
+                "docker", "rm", "-f", "open-bus-stride-db-test-postgres"
             ])

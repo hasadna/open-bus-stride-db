@@ -20,8 +20,10 @@ def get_engine():
 
 def parse_datetime(value):
     parsed = datetime.datetime.fromisoformat(value)
-    if parsed.tzinfo is not None:
-        parsed = parsed.astimezone(datetime.timezone.utc).replace(tzinfo=None)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    else:
+        parsed = parsed.astimezone(datetime.timezone.utc)
     return parsed
 
 
