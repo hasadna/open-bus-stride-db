@@ -74,6 +74,35 @@ Run migrations to make sure your DB is up-to-date:
 . .env && alembic upgrade head
 ```
 
+### Prepare the TimescaleDB migration for `siri_vehicle_location`
+
+The latest DB migration prepares a shadow hypertable named
+`siri_vehicle_location_timescaledb` and the helper SQL functions used for online
+backfill, cutover and rollback.
+
+Typical flow:
+
+```
+. .env && alembic upgrade head
+python bin/siri_vehicle_location_timescaledb_migration.py status
+python bin/siri_vehicle_location_timescaledb_migration.py backfill --from 2026-01-01T00:00:00 --to 2026-02-01T00:00:00 --batch-hours 24 --sleep-seconds 1 --fail-on-mismatch
+python bin/siri_vehicle_location_timescaledb_migration.py validate-range --from 2026-01-01T00:00:00 --to 2026-02-01T00:00:00 --fail-on-mismatch
+python bin/siri_vehicle_location_timescaledb_migration.py cutover
+python bin/siri_vehicle_location_timescaledb_migration.py create-lon-lat-indexes
+python bin/siri_vehicle_location_timescaledb_migration.py add-compression-policy --compress-after "30 days"
+```
+
+Available commands:
+
+* `status` - show live/shadow/rollback table state and sync trigger state
+* `copy-range` - copy one time window from the live table to the shadow hypertable
+* `validate-range` - compare source and target counts for one time window
+* `backfill` - iterate over a larger time window in smaller chunks
+* `cutover` - swap `siri_vehicle_location_timescaledb` into production and rebind foreign keys
+* `rollback` - restore the original table if cutover needs to be reverted
+* `create-lon-lat-indexes` - rebuild the optional lon/lat indexes concurrently after cutover
+* `add-compression-policy` - keep older chunks compressed in the same DB
+
 ### Make changess to the DB model
 
 First, make sure you have the latest code and DB as described above.
