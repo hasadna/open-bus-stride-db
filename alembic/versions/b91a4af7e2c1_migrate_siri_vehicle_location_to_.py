@@ -61,9 +61,10 @@ def upgrade():
         sa.Column('distance_from_siri_ride_stop_meters', sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(['siri_snapshot_id'], ['siri_snapshot.id']),
         sa.ForeignKeyConstraint(['siri_ride_stop_id'], ['siri_ride_stop.id']),
-        sa.PrimaryKeyConstraint('id'),
     )
+    op.create_index('ix_siri_vehicle_location_timescaledb_id', SHADOW_TABLE, ['id'], unique=False)
     op.create_index('ix_siri_vehicle_location_timescaledb_recorded_at_time', SHADOW_TABLE, ['recorded_at_time'], unique=False)
+    op.create_index('uq_siri_vehicle_location_timescaledb_recorded_at_time_id', SHADOW_TABLE, ['recorded_at_time', 'id'], unique=True)
     op.create_index('ix_siri_vehicle_location_timescaledb_siri_snapshot_id', SHADOW_TABLE, ['siri_snapshot_id'], unique=False)
     op.create_index('ix_siri_vehicle_location_timescaledb_siri_ride_stop_id', SHADOW_TABLE, ['siri_ride_stop_id'], unique=False)
 
@@ -98,7 +99,7 @@ def upgrade():
                 VALUES (
                     {_column_list('NEW')}
                 )
-                ON CONFLICT (id) DO NOTHING;
+                ON CONFLICT (recorded_at_time, id) DO NOTHING;
                 RETURN NEW;
             END;
             $$;
@@ -202,7 +203,7 @@ def upgrade():
                 FROM public.siri_vehicle_location AS source_row
                 WHERE source_row.recorded_at_time >= range_start
                   AND source_row.recorded_at_time < range_end
-                ON CONFLICT (id) DO NOTHING;
+                ON CONFLICT (recorded_at_time, id) DO NOTHING;
 
                 GET DIAGNOSTICS rows_inserted = ROW_COUNT;
 
@@ -302,7 +303,9 @@ def downgrade():
     op.execute("DROP FUNCTION IF EXISTS public.sync_siri_vehicle_location_to_timescaledb()")
     op.drop_index('ix_siri_vehicle_location_timescaledb_siri_ride_stop_id', table_name=SHADOW_TABLE)
     op.drop_index('ix_siri_vehicle_location_timescaledb_siri_snapshot_id', table_name=SHADOW_TABLE)
+    op.drop_index('uq_siri_vehicle_location_timescaledb_recorded_at_time_id', table_name=SHADOW_TABLE)
     op.drop_index('ix_siri_vehicle_location_timescaledb_recorded_at_time', table_name=SHADOW_TABLE)
+    op.drop_index('ix_siri_vehicle_location_timescaledb_id', table_name=SHADOW_TABLE)
     op.drop_table(SHADOW_TABLE)
 
 
@@ -347,23 +350,15 @@ def _cutover_function_sql():
             PERFORM public.rename_index_if_exists('ix_siri_vehicle_location_lon', 'ix_{ROLLBACK_TABLE}_lon');
 
             ALTER TABLE public.{SHADOW_TABLE} RENAME TO siri_vehicle_location;
-            PERFORM public.rename_constraint_if_exists('public.siri_vehicle_location'::regclass, 'pk_{SHADOW_TABLE}', 'pk_siri_vehicle_location');
             PERFORM public.rename_constraint_if_exists('public.siri_vehicle_location'::regclass, 'fk_{SHADOW_TABLE}_siri_snapshot_id_siri_snapshot', 'fk_siri_vehicle_location_siri_snapshot_id_siri_snapshot');
             PERFORM public.rename_constraint_if_exists('public.siri_vehicle_location'::regclass, 'fk_{SHADOW_TABLE}_siri_ride_stop_id_siri_ride_stop', 'fk_siri_vehicle_location_siri_ride_stop_id_siri_ride_stop');
+            PERFORM public.rename_index_if_exists('ix_{SHADOW_TABLE}_id', 'ix_siri_vehicle_location_id');
             PERFORM public.rename_index_if_exists('ix_{SHADOW_TABLE}_recorded_at_time', 'ix_siri_vehicle_location_recorded_at_time');
+            PERFORM public.rename_index_if_exists('uq_{SHADOW_TABLE}_recorded_at_time_id', 'uq_siri_vehicle_location_recorded_at_time_id');
             PERFORM public.rename_index_if_exists('ix_{SHADOW_TABLE}_siri_snapshot_id', 'ix_siri_vehicle_location_siri_snapshot_id');
             PERFORM public.rename_index_if_exists('ix_{SHADOW_TABLE}_siri_ride_stop_id', 'ix_siri_vehicle_location_siri_ride_stop_id');
             PERFORM public.rename_index_if_exists('ix_{SHADOW_TABLE}_lat', 'ix_siri_vehicle_location_lat');
             PERFORM public.rename_index_if_exists('ix_{SHADOW_TABLE}_lon', 'ix_siri_vehicle_location_lon');
-
-            ALTER TABLE public.siri_ride
-                ADD CONSTRAINT fk_siri_ride_first_vehicle_location_id_siri_vehicle_location
-                FOREIGN KEY (first_vehicle_location_id) REFERENCES public.siri_vehicle_location(id),
-                ADD CONSTRAINT fk_siri_ride_last_vehicle_location_id_siri_vehicle_location
-                FOREIGN KEY (last_vehicle_location_id) REFERENCES public.siri_vehicle_location(id);
-            ALTER TABLE public.siri_ride_stop
-                ADD CONSTRAINT fk_siri_ride_stop_nearest_siri_vehicle_location_id_siri_vehicle_location
-                FOREIGN KEY (nearest_siri_vehicle_location_id) REFERENCES public.siri_vehicle_location(id);
         END;
         $$;
     """)
@@ -395,10 +390,11 @@ def _rollback_function_sql():
                 DROP CONSTRAINT IF EXISTS fk_siri_ride_stop_nearest_siri_vehicle_location_id_siri_vehicle_location;
 
             ALTER TABLE public.siri_vehicle_location RENAME TO {SHADOW_TABLE};
-            PERFORM public.rename_constraint_if_exists('public.{SHADOW_TABLE}'::regclass, 'pk_siri_vehicle_location', 'pk_{SHADOW_TABLE}');
             PERFORM public.rename_constraint_if_exists('public.{SHADOW_TABLE}'::regclass, 'fk_siri_vehicle_location_siri_snapshot_id_siri_snapshot', 'fk_{SHADOW_TABLE}_siri_snapshot_id_siri_snapshot');
             PERFORM public.rename_constraint_if_exists('public.{SHADOW_TABLE}'::regclass, 'fk_siri_vehicle_location_siri_ride_stop_id_siri_ride_stop', 'fk_{SHADOW_TABLE}_siri_ride_stop_id_siri_ride_stop');
+            PERFORM public.rename_index_if_exists('ix_siri_vehicle_location_id', 'ix_{SHADOW_TABLE}_id');
             PERFORM public.rename_index_if_exists('ix_siri_vehicle_location_recorded_at_time', 'ix_{SHADOW_TABLE}_recorded_at_time');
+            PERFORM public.rename_index_if_exists('uq_siri_vehicle_location_recorded_at_time_id', 'uq_{SHADOW_TABLE}_recorded_at_time_id');
             PERFORM public.rename_index_if_exists('ix_siri_vehicle_location_siri_snapshot_id', 'ix_{SHADOW_TABLE}_siri_snapshot_id');
             PERFORM public.rename_index_if_exists('ix_siri_vehicle_location_siri_ride_stop_id', 'ix_{SHADOW_TABLE}_siri_ride_stop_id');
             PERFORM public.rename_index_if_exists('ix_siri_vehicle_location_lat', 'ix_{SHADOW_TABLE}_lat');

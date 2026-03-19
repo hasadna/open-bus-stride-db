@@ -83,6 +83,15 @@ def test_copy_validate_cutover_and_rollback(get_db):
 
     with db.get_session() as session:
         assert session.execute("SELECT to_regclass('public.siri_vehicle_location_old')").scalar() == 'siri_vehicle_location_old'
+        assert session.execute("""
+            SELECT COUNT(*)
+            FROM pg_constraint
+            WHERE conname IN (
+                'fk_siri_ride_first_vehicle_location_id_siri_vehicle_location',
+                'fk_siri_ride_last_vehicle_location_id_siri_vehicle_location',
+                'fk_siri_ride_stop_nearest_siri_vehicle_location_id_siri_vehicle_location'
+            )
+        """).scalar() == 0
         session.execute("""
             INSERT INTO siri_vehicle_location (
                 id, recorded_at_time, lon, lat, velocity
@@ -106,6 +115,15 @@ def test_copy_validate_cutover_and_rollback(get_db):
 
     with db.get_session() as session:
         assert session.execute("SELECT to_regclass('public.siri_vehicle_location_timescaledb')").scalar() == 'siri_vehicle_location_timescaledb'
+        assert session.execute("""
+            SELECT COUNT(*)
+            FROM pg_constraint
+            WHERE conname IN (
+                'fk_siri_ride_first_vehicle_location_id_siri_vehicle_location',
+                'fk_siri_ride_last_vehicle_location_id_siri_vehicle_location',
+                'fk_siri_ride_stop_nearest_siri_vehicle_location_id_siri_vehicle_location'
+            )
+        """).scalar() == 3
         assert session.execute("SELECT 1 FROM siri_vehicle_location WHERE id = 2").scalar() == 1
         assert session.execute("SELECT COUNT(*) FROM siri_vehicle_location WHERE id = 3").scalar() == 0
         session.execute("""

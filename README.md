@@ -98,7 +98,7 @@ Available commands:
 * `copy-range` - copy one time window from the live table to the shadow hypertable
 * `validate-range` - compare source and target counts for one time window
 * `backfill` - iterate over a larger time window in smaller chunks
-* `cutover` - swap `siri_vehicle_location_timescaledb` into production and rebind foreign keys
+* `cutover` - swap `siri_vehicle_location_timescaledb` into production and drop the incompatible `id`-only foreign keys from `siri_ride` and `siri_ride_stop`
 * `rollback` - restore the original table if cutover needs to be reverted
 * `create-lon-lat-indexes` - rebuild the optional lon/lat indexes concurrently after cutover
 * `add-compression-policy` - keep older chunks compressed in the same DB
