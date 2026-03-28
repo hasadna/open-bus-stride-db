@@ -1,9 +1,9 @@
+from pathlib import Path
+
 from open_bus_stride_db.timescale_framework import (
     OnlineHypertableMigrationOperator,
     OnlineHypertableMigrationSpec,
     SIRI_VEHICLE_LOCATION_SPEC,
-    build_candidate_reviews,
-    candidate_review_to_markdown,
 )
 
 
@@ -28,22 +28,12 @@ def test_siri_vehicle_location_parser_supports_shared_and_legacy_index_commands(
 
     assert create_indexes_args.func == operator.run_create_concurrent_indexes
     assert legacy_alias_args.func == operator.run_create_concurrent_indexes
+def test_siri_vehicle_location_migration_syncs_updates_and_skips_null_timestamps():
+    migration_sql = Path(
+        'alembic/versions/b91a4af7e2c1_migrate_siri_vehicle_location_to_timescaledb.py'
+    ).read_text()
 
-
-def test_candidate_reviews_capture_expected_blockers():
-    reviews = {review.table_name: review for review in build_candidate_reviews()}
-
-    assert set(reviews) == {'gtfs_ride_stop', 'siri_ride_stop'}
-    assert reviews['gtfs_ride_stop'].partition_column == 'arrival_time'
-    assert 'id-only inbound foreign keys from gtfs_ride' in reviews['gtfs_ride_stop'].blockers
-    assert reviews['siri_ride_stop'].partition_column is None
-    assert 'no natural time or sequential partition column suitable for Timescale' in reviews['siri_ride_stop'].blockers
-
-
-def test_candidate_review_markdown_includes_contract_fields():
-    review = build_candidate_reviews()[0]
-    markdown = candidate_review_to_markdown(review)
-
-    assert 'Candidacy score' in markdown
-    assert 'Inbound foreign keys' in markdown
-    assert 'Chosen migration mode' in markdown
+    assert "AFTER INSERT OR UPDATE OR DELETE ON public.siri_vehicle_location" in migration_sql
+    assert "IF NEW.recorded_at_time IS NULL THEN" in migration_sql
+    assert "ON CONFLICT (recorded_at_time, id) DO UPDATE" in migration_sql
+    assert "public.siri_vehicle_location still contains rows with NULL recorded_at_time" in migration_sql

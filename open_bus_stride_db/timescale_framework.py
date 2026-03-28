@@ -2,8 +2,8 @@ import argparse
 import datetime
 import os
 import time
-from dataclasses import dataclass, field
-from typing import Dict, Iterable, Optional, Sequence, Tuple
+from dataclasses import dataclass
+from typing import Optional, Tuple
 
 import sqlalchemy
 
@@ -160,51 +160,6 @@ class OnlineHypertableMigrationSpec:
             'rollback_table': self.qualified_rollback_table_name,
             'sync_trigger_name': self.sync_trigger_name,
         }
-
-
-@dataclass(frozen=True)
-class CandidateReview:
-    table_name: str
-    candidacy_score: int
-    rationale: str
-    partition_column: Optional[str]
-    chunk_interval: str
-    write_pattern: str
-    current_constraints: Tuple[str, ...]
-    inbound_foreign_keys: Tuple[str, ...]
-    outbound_foreign_keys: Tuple[str, ...]
-    migration_mode: str
-    post_cutover_indexes: Tuple[str, ...]
-    compression_settings: str
-    retention_policy: Optional[str]
-    aggregate_policy: Optional[str]
-    recommendation: str
-    blockers: Tuple[str, ...] = field(default_factory=tuple)
-
-
-def candidate_review_to_markdown(review):
-    lines = [
-        '### `{}`'.format(review.table_name),
-        '',
-        '- Candidacy score: {}'.format(review.candidacy_score),
-        '- Recommendation: {}'.format(review.recommendation),
-        '- Rationale: {}'.format(review.rationale),
-        '- Partition column: {}'.format(review.partition_column or 'none identified'),
-        '- Chunk interval: {}'.format(review.chunk_interval),
-        '- Write pattern: {}'.format(review.write_pattern),
-        '- Current PK/UNIQUE constraints: {}'.format('; '.join(review.current_constraints) or 'none documented'),
-        '- Inbound foreign keys: {}'.format('; '.join(review.inbound_foreign_keys) or 'none'),
-        '- Outbound foreign keys: {}'.format('; '.join(review.outbound_foreign_keys) or 'none'),
-        '- Chosen migration mode: {}'.format(review.migration_mode),
-        '- Post-cutover indexes: {}'.format(', '.join(review.post_cutover_indexes) or 'none'),
-        '- Compression settings: {}'.format(review.compression_settings),
-        '- Retention policy: {}'.format(review.retention_policy or 'not defined'),
-        '- Aggregate policy: {}'.format(review.aggregate_policy or 'not defined'),
-    ]
-    if review.blockers:
-        lines.append('- Blockers: {}'.format('; '.join(review.blockers)))
-    lines.append('')
-    return '\n'.join(lines)
 
 
 class OnlineHypertableMigrationOperator:
@@ -376,79 +331,6 @@ class OnlineHypertableMigrationOperator:
         args = self.build_parser().parse_args(argv)
         args.func(args)
         return 0
-
-
-def build_candidate_reviews():
-    return (
-        CandidateReview(
-            table_name='gtfs_ride_stop',
-            candidacy_score=6,
-            rationale=(
-                'Has time columns and inbound id-based references, but looks closer to '
-                'daily refreshed schedule data than append-heavy telemetry.'
-            ),
-            partition_column='arrival_time',
-            chunk_interval='7 days by default unless measured otherwise',
-            write_pattern='batch refresh / schedule reference data',
-            current_constraints=(
-                'PRIMARY KEY (id)',
-            ),
-            inbound_foreign_keys=(
-                'gtfs_ride.first_gtfs_ride_stop_id -> gtfs_ride_stop.id',
-                'gtfs_ride.last_gtfs_ride_stop_id -> gtfs_ride_stop.id',
-            ),
-            outbound_foreign_keys=(
-                'gtfs_ride_stop.gtfs_stop_id -> gtfs_stop.id',
-                'gtfs_ride_stop.gtfs_ride_id -> gtfs_ride.id',
-            ),
-            migration_mode='shadow cutover only if candidacy is proven later',
-            post_cutover_indexes=(),
-            compression_settings='defer until real query patterns justify migration',
-            retention_policy=None,
-            aggregate_policy=None,
-            recommendation='Assess only; do not approve Timescale migration yet.',
-            blockers=(
-                'id-only inbound foreign keys from gtfs_ride',
-                'time-range query value and scale are not yet proven',
-            ),
-        ),
-        CandidateReview(
-            table_name='siri_ride_stop',
-            candidacy_score=3,
-            rationale=(
-                'Relational stop-order table with no natural immutable time partition key '
-                'and no sign of append-heavy telemetry access.'
-            ),
-            partition_column=None,
-            chunk_interval='not applicable',
-            write_pattern='relational / lookup-oriented',
-            current_constraints=(
-                'PRIMARY KEY (id)',
-                'UNIQUE (siri_ride_id, siri_stop_id, order)',
-            ),
-            inbound_foreign_keys=(
-                'siri_vehicle_location.siri_ride_stop_id -> siri_ride_stop.id',
-            ),
-            outbound_foreign_keys=(
-                'siri_ride_stop.siri_stop_id -> siri_stop.id',
-                'siri_ride_stop.siri_ride_id -> siri_ride.id',
-                'siri_ride_stop.gtfs_stop_id -> gtfs_stop.id',
-                'siri_ride_stop.nearest_siri_vehicle_location_id -> siri_vehicle_location.id',
-            ),
-            migration_mode='do not migrate in current schema',
-            post_cutover_indexes=(),
-            compression_settings='not applicable',
-            retention_policy=None,
-            aggregate_policy=None,
-            recommendation='Do not migrate unless a new immutable time dimension and query need are introduced.',
-            blockers=(
-                'no natural time or sequential partition column suitable for Timescale',
-                'table shape is relational rather than telemetry/event oriented',
-            ),
-        ),
-    )
-
-
 SIRI_VEHICLE_LOCATION_SPEC = OnlineHypertableMigrationSpec(
     table_name='siri_vehicle_location',
     concurrent_indexes=(

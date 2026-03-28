@@ -85,13 +85,38 @@ def upgrade():
             LANGUAGE plpgsql
             AS $$
             BEGIN
+                IF TG_OP = 'DELETE' THEN
+                    DELETE FROM public.{SHADOW_TABLE}
+                    WHERE recorded_at_time = OLD.recorded_at_time
+                      AND id = OLD.id;
+                    RETURN OLD;
+                END IF;
+
+                IF TG_OP = 'UPDATE' AND OLD.recorded_at_time IS NOT NULL THEN
+                    DELETE FROM public.{SHADOW_TABLE}
+                    WHERE recorded_at_time = OLD.recorded_at_time
+                      AND id = OLD.id;
+                END IF;
+
+                IF NEW.recorded_at_time IS NULL THEN
+                    RETURN NEW;
+                END IF;
+
                 INSERT INTO public.{SHADOW_TABLE} (
                     {_column_list()}
                 )
                 VALUES (
                     {_column_list('NEW')}
                 )
-                ON CONFLICT (recorded_at_time, id) DO NOTHING;
+                ON CONFLICT (recorded_at_time, id) DO UPDATE
+                SET siri_snapshot_id = EXCLUDED.siri_snapshot_id,
+                    siri_ride_stop_id = EXCLUDED.siri_ride_stop_id,
+                    lon = EXCLUDED.lon,
+                    lat = EXCLUDED.lat,
+                    bearing = EXCLUDED.bearing,
+                    velocity = EXCLUDED.velocity,
+                    distance_from_journey_start = EXCLUDED.distance_from_journey_start,
+                    distance_from_siri_ride_stop_meters = EXCLUDED.distance_from_siri_ride_stop_meters;
                 RETURN NEW;
             END;
             $$;
@@ -110,7 +135,7 @@ def upgrade():
                       AND NOT tgisinternal
                 ) THEN
                     EXECUTE 'CREATE TRIGGER {SYNC_TRIGGER}
-                             AFTER INSERT ON public.siri_vehicle_location
+                             AFTER INSERT OR UPDATE OR DELETE ON public.siri_vehicle_location
                              FOR EACH ROW
                              EXECUTE FUNCTION public.sync_siri_vehicle_location_to_timescaledb()';
                 END IF;
@@ -318,6 +343,13 @@ def _cutover_function_sql():
             END IF;
             IF to_regclass('public.{ROLLBACK_TABLE}') IS NOT NULL THEN
                 RAISE EXCEPTION 'public.{ROLLBACK_TABLE} already exists';
+            END IF;
+            IF EXISTS (
+                SELECT 1
+                FROM public.siri_vehicle_location
+                WHERE recorded_at_time IS NULL
+            ) THEN
+                RAISE EXCEPTION 'public.siri_vehicle_location still contains rows with NULL recorded_at_time';
             END IF;
 
             LOCK TABLE public.siri_ride IN ACCESS EXCLUSIVE MODE;

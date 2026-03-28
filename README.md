@@ -83,7 +83,6 @@ backfill, cutover and rollback.
 The repo-standard framework for this workflow is documented in:
 
 - `docs/timescaledb_online_hypertable_framework.md`
-- `docs/timescaledb_candidate_reviews.md`
 
 Typical flow:
 
@@ -107,17 +106,6 @@ Available commands:
 - `create-concurrent-indexes` - rebuild the optional concurrent indexes after cutover
 - `create-lon-lat-indexes` - backward-compatible alias for `create-concurrent-indexes`
 - `add-compression-policy` - optionally keep older chunks compressed in the same DB when the Timescale build supports compression
-
-Future Timescale work should follow the same decision-record contract before any
-table-specific migration is built:
-
-- candidate score and rationale
-- partition column and chunk interval
-- current PK/UNIQUE constraints
-- inbound and outbound foreign keys
-- chosen migration mode
-- post-cutover indexes
-- compression, retention, and aggregate decisions only when explicitly justified
 
 ### Make changess to the DB model
 

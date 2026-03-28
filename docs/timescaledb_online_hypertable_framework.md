@@ -19,21 +19,9 @@ converted in place without breaking current `id`-based application contracts:
 
 ## Decision Record Contract
 
-Every future Timescale migration should start with a decision record that captures:
-
-- table name
-- candidacy score and rationale
-- partition column
-- chunk interval
-- write pattern
-- current PK/UNIQUE constraints
-- inbound foreign keys pointing to the table
-- outbound foreign keys from the table
-- chosen migration mode
-- post-cutover indexes to rebuild concurrently
-- compression settings, if supported
-- retention policy, only if explicitly known
-- aggregate policy, only if there is an actual consumer need
+Every future Timescale migration should start with a written decision record.
+Document only the constraints, operating assumptions, and follow-up work that
+the migration actually needs.
 
 ## Migration Mode Rules
 
@@ -55,7 +43,6 @@ Primary pieces:
 - `OnlineHypertableMigrationSpec`: table-specific metadata and generated names
 - `OnlineHypertableMigrationOperator`: shared CLI behavior for status, backfill,
   validation, cutover, rollback, concurrent-index rebuilds, and compression setup
-- `CandidateReview`: a standard decision-record shape for future candidate tables
 
 `bin/siri_vehicle_location_timescaledb_migration.py` is the canonical example of
 the operator-script pattern. Future table-specific scripts should stay thin and
