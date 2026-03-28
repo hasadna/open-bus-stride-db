@@ -80,6 +80,11 @@ The latest DB migration prepares a shadow hypertable named
 `siri_vehicle_location_timescaledb` and the helper SQL functions used for online
 backfill, cutover and rollback.
 
+The repo-standard framework for this workflow is documented in:
+
+- `docs/timescaledb_online_hypertable_framework.md`
+- `docs/timescaledb_candidate_reviews.md`
+
 Typical flow:
 
 ```bash
@@ -88,7 +93,7 @@ python bin/siri_vehicle_location_timescaledb_migration.py status
 python bin/siri_vehicle_location_timescaledb_migration.py backfill --from 2026-03-01T00:00:00 --to 2026-03-21T00:00:00 --batch-hours 24 --sleep-seconds 1 --fail-on-mismatch
 python bin/siri_vehicle_location_timescaledb_migration.py validate-range --from 2026-01-01T00:00:00 --to 2026-02-01T00:00:00 --fail-on-mismatch
 python bin/siri_vehicle_location_timescaledb_migration.py cutover
-python bin/siri_vehicle_location_timescaledb_migration.py create-lon-lat-indexes
+python bin/siri_vehicle_location_timescaledb_migration.py create-concurrent-indexes
 ```
 
 Available commands:
@@ -99,8 +104,20 @@ Available commands:
 - `backfill` - iterate over a larger time window in smaller chunks
 - `cutover` - swap `siri_vehicle_location_timescaledb` into production and drop the incompatible `id`-only foreign keys from `siri_ride` and `siri_ride_stop`
 - `rollback` - restore the original table if cutover needs to be reverted
-- `create-lon-lat-indexes` - rebuild the optional lon/lat indexes concurrently after cutover
+- `create-concurrent-indexes` - rebuild the optional concurrent indexes after cutover
+- `create-lon-lat-indexes` - backward-compatible alias for `create-concurrent-indexes`
 - `add-compression-policy` - optionally keep older chunks compressed in the same DB when the Timescale build supports compression
+
+Future Timescale work should follow the same decision-record contract before any
+table-specific migration is built:
+
+- candidate score and rationale
+- partition column and chunk interval
+- current PK/UNIQUE constraints
+- inbound and outbound foreign keys
+- chosen migration mode
+- post-cutover indexes
+- compression, retention, and aggregate decisions only when explicitly justified
 
 ### Make changess to the DB model
 
