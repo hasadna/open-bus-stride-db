@@ -313,7 +313,7 @@ class OnlineHypertableMigrationOperator:
         backfill = subparsers.add_parser('backfill')
         backfill.add_argument('--from', dest='range_start', required=True)
         backfill.add_argument('--to', dest='range_end', required=True)
-        backfill.add_argument('--batch-hours', default='24')
+        backfill.add_argument('--batch-hours', default='2')
         backfill.add_argument('--sleep-seconds', default='0')
         backfill.add_argument('--fail-on-mismatch', action='store_true')
         backfill.set_defaults(func=self.run_backfill)
