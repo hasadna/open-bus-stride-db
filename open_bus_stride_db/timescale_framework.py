@@ -97,30 +97,41 @@ class OnlineHypertableMigrationSpec:
 
     def __post_init__(self):
         if self.shadow_table_name is None:
-            object.__setattr__(self, 'shadow_table_name', '{}_timescaledb'.format(self.table_name))
+            object.__setattr__(self, 'shadow_table_name',
+                               '{}_timescaledb'.format(self.table_name))
         if self.rollback_table_name is None:
-            object.__setattr__(self, 'rollback_table_name', '{}_old'.format(self.table_name))
+            object.__setattr__(self, 'rollback_table_name',
+                               '{}_old'.format(self.table_name))
         if self.sync_trigger_name is None:
-            object.__setattr__(self, 'sync_trigger_name', 'trg_sync_{}_to_timescaledb'.format(self.table_name))
+            object.__setattr__(self, 'sync_trigger_name',
+                               'trg_sync_{}_to_timescaledb'.format(self.table_name))
         if self.sync_function_name is None:
-            object.__setattr__(self, 'sync_function_name', 'sync_{}_to_timescaledb'.format(self.table_name))
+            object.__setattr__(self, 'sync_function_name',
+                               'sync_{}_to_timescaledb'.format(self.table_name))
         if self.enable_trigger_function_name is None:
-            object.__setattr__(self, 'enable_trigger_function_name', 'enable_{}_sync_trigger'.format(self.table_name))
+            object.__setattr__(self, 'enable_trigger_function_name',
+                               'enable_{}_sync_trigger'.format(self.table_name))
         if self.disable_trigger_function_name is None:
-            object.__setattr__(self, 'disable_trigger_function_name', 'disable_{}_sync_trigger'.format(self.table_name))
+            object.__setattr__(self, 'disable_trigger_function_name',
+                               'disable_{}_sync_trigger'.format(self.table_name))
         if self.copy_function_name is None:
-            object.__setattr__(self, 'copy_function_name', 'copy_{}_range'.format(self.table_name))
+            object.__setattr__(self, 'copy_function_name',
+                               'copy_{}_range'.format(self.table_name))
         if self.validate_function_name is None:
-            object.__setattr__(self, 'validate_function_name', 'validate_{}_range'.format(self.table_name))
+            object.__setattr__(self, 'validate_function_name',
+                               'validate_{}_range'.format(self.table_name))
         if self.cutover_function_name is None:
-            object.__setattr__(self, 'cutover_function_name', 'cutover_{}_to_timescaledb'.format(self.table_name))
+            object.__setattr__(self, 'cutover_function_name',
+                               'cutover_{}_to_timescaledb'.format(self.table_name))
         if self.rollback_function_name is None:
-            object.__setattr__(self, 'rollback_function_name', 'rollback_{}_timescaledb_cutover'.format(self.table_name))
+            object.__setattr__(self, 'rollback_function_name',
+                               'rollback_{}_timescaledb_cutover'.format(self.table_name))
         if self.command_description is None:
             object.__setattr__(
                 self,
                 'command_description',
-                'Operate the {} TimescaleDB migration.'.format(self.table_name),
+                'Operate the {} TimescaleDB migration.'.format(
+                    self.table_name),
             )
 
     @property
@@ -187,7 +198,8 @@ class OnlineHypertableMigrationOperator:
     def run_validate_range(self, args):
         row = self.run_query(
             "SELECT * FROM {}(:range_start, :range_end)".format(
-                self.spec.qualified_function_name(self.spec.validate_function_name)
+                self.spec.qualified_function_name(
+                    self.spec.validate_function_name)
             ),
             {
                 'range_start': parse_datetime(args.range_start),
@@ -210,7 +222,8 @@ class OnlineHypertableMigrationOperator:
             print('copying {} -> {}'.format(current.isoformat(), batch_end.isoformat()))
             row = self.run_query(
                 "SELECT * FROM {}(:range_start, :range_end)".format(
-                    self.spec.qualified_function_name(self.spec.copy_function_name)
+                    self.spec.qualified_function_name(
+                        self.spec.copy_function_name)
                 ),
                 {'range_start': current, 'range_end': batch_end}
             ).mappings().one()
@@ -231,7 +244,8 @@ class OnlineHypertableMigrationOperator:
     def run_cutover(self, _args):
         self.run_query(
             "SELECT {}()".format(
-                self.spec.qualified_function_name(self.spec.cutover_function_name)
+                self.spec.qualified_function_name(
+                    self.spec.cutover_function_name)
             )
         )
         print('cutover completed')
@@ -239,7 +253,8 @@ class OnlineHypertableMigrationOperator:
     def run_rollback(self, _args):
         self.run_query(
             "SELECT {}()".format(
-                self.spec.qualified_function_name(self.spec.rollback_function_name)
+                self.spec.qualified_function_name(
+                    self.spec.rollback_function_name)
             )
         )
         print('rollback completed')
@@ -258,13 +273,16 @@ class OnlineHypertableMigrationOperator:
 
     def run_add_compression_policy(self, args):
         if self.spec.compression_policy is None:
-            raise SystemExit('compression policy is not configured for {}'.format(self.spec.table_name))
+            raise SystemExit(
+                'compression policy is not configured for {}'.format(self.spec.table_name))
         try:
             self.run_query(
-                self.spec.compression_policy.alter_table_sql(self.spec.qualified_table_name)
+                self.spec.compression_policy.alter_table_sql(
+                    self.spec.qualified_table_name)
             )
             self.run_query(
-                self.spec.compression_policy.add_policy_sql(self.spec.qualified_table_name),
+                self.spec.compression_policy.add_policy_sql(
+                    self.spec.qualified_table_name),
                 {'compress_after': args.compress_after}
             )
         except sqlalchemy.exc.DBAPIError as exc:
@@ -275,7 +293,8 @@ class OnlineHypertableMigrationOperator:
         print('compression policy ensured: {}'.format(args.compress_after))
 
     def build_parser(self):
-        parser = argparse.ArgumentParser(description=self.spec.command_description)
+        parser = argparse.ArgumentParser(
+            description=self.spec.command_description)
         subparsers = parser.add_subparsers(dest='command', required=True)
 
         copy_range = subparsers.add_parser('copy-range')
@@ -285,7 +304,8 @@ class OnlineHypertableMigrationOperator:
         copy_range.set_defaults(func=self.run_copy_range)
 
         validate_range = subparsers.add_parser('validate-range')
-        validate_range.add_argument('--from', dest='range_start', required=True)
+        validate_range.add_argument(
+            '--from', dest='range_start', required=True)
         validate_range.add_argument('--to', dest='range_end', required=True)
         validate_range.add_argument('--fail-on-mismatch', action='store_true')
         validate_range.set_defaults(func=self.run_validate_range)
@@ -293,7 +313,7 @@ class OnlineHypertableMigrationOperator:
         backfill = subparsers.add_parser('backfill')
         backfill.add_argument('--from', dest='range_start', required=True)
         backfill.add_argument('--to', dest='range_end', required=True)
-        backfill.add_argument('--batch-hours', default='2')
+        backfill.add_argument('--batch-hours', default='24')
         backfill.add_argument('--sleep-seconds', default='0')
         backfill.add_argument('--fail-on-mismatch', action='store_true')
         backfill.set_defaults(func=self.run_backfill)
@@ -311,9 +331,11 @@ class OnlineHypertableMigrationOperator:
             self.spec.concurrent_indexes_command_name,
             aliases=list(self.spec.concurrent_indexes_command_aliases),
         )
-        concurrent_indexes.set_defaults(func=self.run_create_concurrent_indexes)
+        concurrent_indexes.set_defaults(
+            func=self.run_create_concurrent_indexes)
 
-        add_compression_policy = subparsers.add_parser('add-compression-policy')
+        add_compression_policy = subparsers.add_parser(
+            'add-compression-policy')
         default_compress_after = (
             self.spec.compression_policy.default_compress_after
             if self.spec.compression_policy is not None else
@@ -323,7 +345,8 @@ class OnlineHypertableMigrationOperator:
             '--compress-after',
             default=default_compress_after,
         )
-        add_compression_policy.set_defaults(func=self.run_add_compression_policy)
+        add_compression_policy.set_defaults(
+            func=self.run_add_compression_policy)
 
         return parser
 
@@ -331,11 +354,15 @@ class OnlineHypertableMigrationOperator:
         args = self.build_parser().parse_args(argv)
         args.func(args)
         return 0
+
+
 SIRI_VEHICLE_LOCATION_SPEC = OnlineHypertableMigrationSpec(
     table_name='siri_vehicle_location',
     concurrent_indexes=(
-        ConcurrentIndexSpec(name='ix_siri_vehicle_location_lat', columns=('lat',)),
-        ConcurrentIndexSpec(name='ix_siri_vehicle_location_lon', columns=('lon',)),
+        ConcurrentIndexSpec(
+            name='ix_siri_vehicle_location_lat', columns=('lat',)),
+        ConcurrentIndexSpec(
+            name='ix_siri_vehicle_location_lon', columns=('lon',)),
     ),
     compression_policy=CompressionPolicySpec(
         segmentby=('siri_snapshot_id', 'siri_ride_stop_id'),
