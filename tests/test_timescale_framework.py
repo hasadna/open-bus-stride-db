@@ -24,7 +24,7 @@ def test_siri_vehicle_location_parser_supports_shared_and_legacy_index_commands(
     parser = operator.build_parser()
 
     create_indexes_args = parser.parse_args(['create-concurrent-indexes'])
-    legacy_alias_args = parser.parse_args(['create-lon-lat-indexes'])
+    legacy_alias_args = parser.parse_args(['create-indexes'])
 
     assert create_indexes_args.func == operator.run_create_concurrent_indexes
     assert legacy_alias_args.func == operator.run_create_concurrent_indexes

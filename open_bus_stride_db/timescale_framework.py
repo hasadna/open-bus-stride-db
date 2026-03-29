@@ -41,10 +41,11 @@ class ConcurrentIndexSpec:
     name: str
     columns: Tuple[str, ...]
 
-    def create_sql(self, qualified_table_name):
+    def create_sql(self, qualified_table_name, concurrently=True):
         columns_sql = ', '.join(self.columns)
+        concurrently_sql = ' CONCURRENTLY' if concurrently else ''
         return f"""
-            CREATE INDEX CONCURRENTLY IF NOT EXISTS {self.name}
+            CREATE INDEX{concurrently_sql} IF NOT EXISTS {self.name}
             ON {qualified_table_name} ({columns_sql})
         """
 
@@ -181,6 +182,25 @@ class OnlineHypertableMigrationOperator:
         with get_engine().begin() as connection:
             return connection.execute(sqlalchemy.text(query), params or {})
 
+    def is_hypertable(self, connection):
+        row = connection.execute(
+            sqlalchemy.text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM timescaledb_information.hypertables
+                    WHERE hypertable_schema = :schema_name
+                      AND hypertable_name = :table_name
+                ) AS is_hypertable
+                """
+            ),
+            {
+                'schema_name': self.spec.schema_name,
+                'table_name': self.spec.table_name,
+            },
+        ).mappings().one()
+        return row['is_hypertable']
+
     def run_copy_range(self, args):
         row = self.run_query(
             "SELECT * FROM {}(:range_start, :range_end)".format(
@@ -265,11 +285,19 @@ class OnlineHypertableMigrationOperator:
             return
         engine = get_engine()
         with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
+            use_concurrent_create = not self.is_hypertable(connection)
             for index_spec in self.spec.concurrent_indexes:
                 connection.execute(sqlalchemy.text(
-                    index_spec.create_sql(self.spec.qualified_table_name)
+                    index_spec.create_sql(
+                        self.spec.qualified_table_name,
+                        concurrently=use_concurrent_create,
+                    )
                 ))
-        print('concurrent indexes ensured')
+        if use_concurrent_create:
+            print('concurrent indexes ensured')
+        else:
+            print(
+                'indexes ensured without CONCURRENTLY because target table is a hypertable')
 
     def run_add_compression_policy(self, args):
         if self.spec.compression_policy is None:
@@ -368,5 +396,5 @@ SIRI_VEHICLE_LOCATION_SPEC = OnlineHypertableMigrationSpec(
         segmentby=('siri_snapshot_id', 'siri_ride_stop_id'),
         orderby=('recorded_at_time DESC', 'id DESC'),
     ),
-    concurrent_indexes_command_aliases=('create-lon-lat-indexes',),
+    concurrent_indexes_command_aliases=('create-indexes',),
 )

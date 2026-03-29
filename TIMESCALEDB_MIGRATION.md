@@ -176,7 +176,7 @@ Create the lon/lat indexes concurrently after cutover:
 The old command name still works:
 
 ```bash
-. .env && python bin/siri_vehicle_location_timescaledb_migration.py create-lon-lat-indexes
+. .env && python bin/siri_vehicle_location_timescaledb_migration.py create-indexes
 ```
 
 Optionally add compression:
