@@ -77,13 +77,13 @@ Expected state before backfill:
 
 Backfill in bounded time ranges. The migration code copies rows by `recorded_at_time`, and the sync trigger keeps recent writes aligned while the backfill runs.
 
-Example: backfill one month in 24-hour batches.
+Example: backfill one month in 2 hour batches.
 
 ```bash
 . .env && python bin/siri_vehicle_location_timescaledb_migration.py backfill \
   --from 2026-02-01T00:00:00+00:00 \
   --to 2026-03-01T00:00:00+00:00 \
-  --batch-hours 24 \
+  --batch-hours 2 \
   --fail-on-mismatch
 ```
 

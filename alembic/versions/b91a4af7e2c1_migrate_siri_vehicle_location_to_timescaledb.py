@@ -228,8 +228,8 @@ def upgrade():
                 WITH source_stats AS (
                     SELECT
                         COUNT(*) AS source_count,
-                        MIN(recorded_at_time) AS source_min_recorded_at_time,
-                        MAX(recorded_at_time) AS source_max_recorded_at_time
+                        MIN(recorded_at_time)::timestamptz AS source_min_recorded_at_time,
+                        MAX(recorded_at_time)::timestamptz AS source_max_recorded_at_time
                     FROM public.siri_vehicle_location
                     WHERE recorded_at_time >= range_start
                       AND recorded_at_time < range_end
@@ -237,8 +237,8 @@ def upgrade():
                 target_stats AS (
                     SELECT
                         COUNT(*) AS target_count,
-                        MIN(recorded_at_time) AS target_min_recorded_at_time,
-                        MAX(recorded_at_time) AS target_max_recorded_at_time
+                        MIN(recorded_at_time)::timestamptz AS target_min_recorded_at_time,
+                        MAX(recorded_at_time)::timestamptz AS target_max_recorded_at_time
                     FROM public.{SHADOW_TABLE}
                     WHERE recorded_at_time >= range_start
                       AND recorded_at_time < range_end
@@ -272,8 +272,8 @@ def upgrade():
                 WITH source_stats AS (
                     SELECT
                         COUNT(*) AS source_count,
-                        MIN(recorded_at_time) AS source_min_recorded_at_time,
-                        MAX(recorded_at_time) AS source_max_recorded_at_time
+                        MIN(recorded_at_time)::timestamptz AS source_min_recorded_at_time,
+                        MAX(recorded_at_time)::timestamptz AS source_max_recorded_at_time
                     FROM public.siri_vehicle_location
                     WHERE recorded_at_time >= range_start
                       AND recorded_at_time < range_end
@@ -281,8 +281,8 @@ def upgrade():
                 target_stats AS (
                     SELECT
                         COUNT(*) AS target_count,
-                        MIN(recorded_at_time) AS target_min_recorded_at_time,
-                        MAX(recorded_at_time) AS target_max_recorded_at_time
+                        MIN(recorded_at_time)::timestamptz AS target_min_recorded_at_time,
+                        MAX(recorded_at_time)::timestamptz AS target_max_recorded_at_time
                     FROM public.{SHADOW_TABLE}
                     WHERE recorded_at_time >= range_start
                       AND recorded_at_time < range_end
