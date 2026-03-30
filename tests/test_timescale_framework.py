@@ -3,6 +3,7 @@ from pathlib import Path
 from open_bus_stride_db.timescale_framework import (
     OnlineHypertableMigrationOperator,
     OnlineHypertableMigrationSpec,
+    RetentionPolicySpec,
     SIRI_VEHICLE_LOCATION_SPEC,
 )
 
@@ -25,9 +26,35 @@ def test_siri_vehicle_location_parser_supports_shared_and_legacy_index_commands(
 
     create_indexes_args = parser.parse_args(['create-concurrent-indexes'])
     legacy_alias_args = parser.parse_args(['create-indexes'])
+    retention_args = parser.parse_args(['add-retention-policy', '--drop-after', '365 days'])
 
     assert create_indexes_args.func == operator.run_create_concurrent_indexes
     assert legacy_alias_args.func == operator.run_create_concurrent_indexes
+    assert retention_args.func == operator.run_add_retention_policy
+
+
+def test_retention_policy_default_is_used_when_configured():
+    spec = OnlineHypertableMigrationSpec(
+        table_name='example_events',
+        retention_policy=RetentionPolicySpec(default_drop_after='90 days'),
+    )
+    operator = OnlineHypertableMigrationOperator(spec)
+    parser = operator.build_parser()
+
+    retention_args = parser.parse_args(['add-retention-policy'])
+
+    assert retention_args.drop_after == '90 days'
+
+
+def test_siri_vehicle_location_compression_settings_are_single_segment():
+    assert SIRI_VEHICLE_LOCATION_SPEC.compression_policy.segmentby == ('siri_snapshot_id',)
+    assert SIRI_VEHICLE_LOCATION_SPEC.compression_policy.orderby == (
+        'recorded_at_time DESC',
+        'siri_ride_stop_id',
+        'id DESC',
+    )
+
+
 def test_siri_vehicle_location_migration_syncs_updates_and_skips_null_timestamps():
     migration_sql = Path(
         'alembic/versions/b91a4af7e2c1_migrate_siri_vehicle_location_to_timescaledb.py'

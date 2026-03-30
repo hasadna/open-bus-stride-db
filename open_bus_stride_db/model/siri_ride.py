@@ -15,6 +15,16 @@ class SiriRide(Base):
             'idx_siri_ride_scheduled_start_date',
             sqlalchemy.text("date_trunc('day', scheduled_start_time)::date")
         ),
+        sqlalchemy.ForeignKeyConstraint(
+            ['first_vehicle_location_recorded_at_time', 'first_vehicle_location_id'],
+            ['siri_vehicle_location.recorded_at_time', 'siri_vehicle_location.id'],
+            name='fk_siri_ride_first_vehicle_location_id_siri_vehicle_location',
+        ),
+        sqlalchemy.ForeignKeyConstraint(
+            ['last_vehicle_location_recorded_at_time', 'last_vehicle_location_id'],
+            ['siri_vehicle_location.recorded_at_time', 'siri_vehicle_location.id'],
+            name='fk_siri_ride_last_vehicle_location_id_siri_vehicle_location',
+        ),
         {**info("""
             A ride along a [[siri_route]]. 
             Populated in near real time from the SIRI data by [[siri-etl-process-snapshot-new-snapshots-daemon]].
@@ -59,15 +69,21 @@ class SiriRide(Base):
     updated_first_last_vehicle_locations = sqlalchemy.Column(
         DateTimeWithTimeZone, index=True, **info(hide=True)
     )
+    first_vehicle_location_recorded_at_time = sqlalchemy.Column(
+        DateTimeWithTimeZone, **info(hide=True)
+    )
     first_vehicle_location_id = sqlalchemy.Column(
-        sqlalchemy.BigInteger, sqlalchemy.ForeignKey('siri_vehicle_location.id'),
+        sqlalchemy.BigInteger,
         **info("""
             The first [[siri_vehicle_location]] along this ride.
             Populated by [[stride-etl-siri-add-ride-durations]].
         """)
     )
+    last_vehicle_location_recorded_at_time = sqlalchemy.Column(
+        DateTimeWithTimeZone, **info(hide=True)
+    )
     last_vehicle_location_id = sqlalchemy.Column(
-        sqlalchemy.BigInteger, sqlalchemy.ForeignKey('siri_vehicle_location.id'),
+        sqlalchemy.BigInteger,
         **info("""
             The last [[siri_vehicle_location]] along this ride.
             Populated by [[stride-etl-siri-add-ride-durations]].

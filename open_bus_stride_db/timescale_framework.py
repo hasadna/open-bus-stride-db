@@ -77,6 +77,20 @@ class CompressionPolicySpec:
 
 
 @dataclass(frozen=True)
+class RetentionPolicySpec:
+    default_drop_after: str
+
+    def add_policy_sql(self, qualified_table_name):
+        return f"""
+            SELECT add_retention_policy(
+                '{qualified_table_name}',
+                drop_after => CAST(:drop_after AS interval),
+                if_not_exists => TRUE
+            )
+        """
+
+
+@dataclass(frozen=True)
 class OnlineHypertableMigrationSpec:
     table_name: str
     schema_name: str = 'public'
@@ -92,6 +106,7 @@ class OnlineHypertableMigrationSpec:
     rollback_function_name: Optional[str] = None
     concurrent_indexes: Tuple[ConcurrentIndexSpec, ...] = ()
     compression_policy: Optional[CompressionPolicySpec] = None
+    retention_policy: Optional[RetentionPolicySpec] = None
     command_description: Optional[str] = None
     concurrent_indexes_command_name: str = 'create-concurrent-indexes'
     concurrent_indexes_command_aliases: Tuple[str, ...] = ()
@@ -320,6 +335,17 @@ class OnlineHypertableMigrationOperator:
             ) from exc
         print('compression policy ensured: {}'.format(args.compress_after))
 
+    def run_add_retention_policy(self, args):
+        if self.spec.retention_policy is None:
+            raise SystemExit(
+                'retention policy is not configured for {}'.format(self.spec.table_name))
+        self.run_query(
+            self.spec.retention_policy.add_policy_sql(
+                self.spec.qualified_table_name),
+            {'drop_after': args.drop_after}
+        )
+        print('retention policy ensured: {}'.format(args.drop_after))
+
     def build_parser(self):
         parser = argparse.ArgumentParser(
             description=self.spec.command_description)
@@ -376,6 +402,21 @@ class OnlineHypertableMigrationOperator:
         add_compression_policy.set_defaults(
             func=self.run_add_compression_policy)
 
+        add_retention_policy = subparsers.add_parser(
+            'add-retention-policy')
+        if self.spec.retention_policy is not None:
+            add_retention_policy.add_argument(
+                '--drop-after',
+                default=self.spec.retention_policy.default_drop_after,
+            )
+        else:
+            add_retention_policy.add_argument(
+                '--drop-after',
+                required=True,
+            )
+        add_retention_policy.set_defaults(
+            func=self.run_add_retention_policy)
+
         return parser
 
     def main(self, argv=None):
@@ -393,8 +434,8 @@ SIRI_VEHICLE_LOCATION_SPEC = OnlineHypertableMigrationSpec(
             name='ix_siri_vehicle_location_lon', columns=('lon',)),
     ),
     compression_policy=CompressionPolicySpec(
-        segmentby=('siri_snapshot_id', 'siri_ride_stop_id'),
-        orderby=('recorded_at_time DESC', 'id DESC'),
+        segmentby=('siri_snapshot_id',),
+        orderby=('recorded_at_time DESC', 'siri_ride_stop_id', 'id DESC'),
     ),
     concurrent_indexes_command_aliases=('create-indexes',),
 )

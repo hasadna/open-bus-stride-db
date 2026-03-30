@@ -6,7 +6,7 @@ The migration has three parts:
 
 1. Apply the Alembic revision that creates the shadow hypertable and helper functions.
 2. Backfill historical data into the shadow table while a trigger keeps new writes in sync.
-3. Cut over with a short lock, then verify and optionally add compression.
+3. Cut over with a short lock, then verify and optionally add compression and retention.
 
 ## What Changed
 
@@ -187,11 +187,20 @@ Optionally add compression:
 
 Default compression settings from the code:
 
-- `segmentby = siri_snapshot_id, siri_ride_stop_id`
-- `orderby = recorded_at_time DESC, id DESC`
+- `segmentby = siri_snapshot_id`
+- `orderby = recorded_at_time DESC, siri_ride_stop_id, id DESC`
 - `compress_after = 30 days`
 
 If the current TimescaleDB build does not support compression, the command exits with a clear error. In that case, skip compression or use a build that supports it.
+
+If you have a defined raw-data retention window, add retention explicitly:
+
+```bash
+. .env && python bin/siri_vehicle_location_timescaledb_migration.py add-retention-policy \
+  --drop-after '365 days'
+```
+
+Do not guess the retention interval. Pick it from product or operations requirements.
 
 ## Rollback
 
@@ -225,7 +234,8 @@ Use this sequence in production:
 9. Confirm `status`.
 10. Create concurrent lon/lat indexes.
 11. Optionally add the compression policy.
-12. Keep `public.siri_vehicle_location_old` until you are satisfied with the migration.
+12. Optionally add a retention policy if you have a defined raw-data window.
+13. Keep `public.siri_vehicle_location_old` until you are satisfied with the migration.
 
 ## Failure Modes To Watch
 
@@ -237,6 +247,8 @@ Use this sequence in production:
   Re-run `copy-range` or `backfill` for the affected window before cutover.
 - `add-compression-policy` fails:
   The TimescaleDB build or license does not support compression.
+- Queries or code still depend on foreign keys to `siri_vehicle_location(id)`:
+  The hypertable enforces uniqueness on `(recorded_at_time, id)`, not on `id` alone. The migration preserves application-level access to the data, but a full FK-safe redesign still needs a follow-up schema decision.
 
 ## Related Files
 
