@@ -3,7 +3,7 @@ FROM --platform=linux/amd64 python:3.8@sha256:1387025f39249bbee2ed49076e70be5da0
 RUN pip install --upgrade pip
 RUN wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | apt-key add - &&\
     echo "deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main" | tee  /etc/apt/sources.list.d/pgdg.list &&\
-    apt-get update && apt-get install -y postgresql-client-13
+    apt-get update && apt-get install -y postgresql-client-14
 WORKDIR /srv
 COPY requirements.txt .
 RUN pip install -r requirements.txt

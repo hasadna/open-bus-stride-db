@@ -37,8 +37,8 @@ jobs:
 #        cache-to: type=gha,mode=max
     - run: |
         set -euo pipefail
-        docker run -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v `pwd`/.data/db:/var/lib/postgresql/data -d postgres:14
-        sleep 5
+        docker run -e POSTGRES_PASSWORD=123456 -p 5432:5432 -v `pwd`/.data/db:/var/lib/postgresql/data -d timescale/timescaledb:2.19.3-pg14
+        timeout 60 bash -c 'until docker exec $(docker ps -q | head -n1) pg_isready -U postgres; do sleep 1; done'
         docker run --network host -e SQLALCHEMY_URL=postgresql://postgres:123456@localhost ${DOCKER_APP_IMAGE_NAME}:${{ github.sha }}
         docker tag ${DOCKER_APP_IMAGE_NAME}:${{ github.sha }} app
         docker build -t docgen -f docgen.Dockerfile .

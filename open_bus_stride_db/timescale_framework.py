@@ -1,0 +1,441 @@
+import argparse
+import datetime
+import os
+import time
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+import sqlalchemy
+
+
+DEFAULT_DB_URL = 'postgresql://postgres:123456@localhost'
+
+
+def get_engine():
+    return sqlalchemy.create_engine(
+        os.environ.get('SQLALCHEMY_URL', DEFAULT_DB_URL),
+        future=True,
+    )
+
+
+def parse_datetime(value):
+    parsed = datetime.datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+    else:
+        parsed = parsed.astimezone(datetime.timezone.utc)
+    return parsed
+
+
+def parse_interval_hours(value):
+    return datetime.timedelta(hours=float(value))
+
+
+def print_row(row, prefix=''):
+    for key in row.keys():
+        print(f'{prefix}{key}={row[key]}')
+
+
+@dataclass(frozen=True)
+class ConcurrentIndexSpec:
+    name: str
+    columns: Tuple[str, ...]
+
+    def create_sql(self, qualified_table_name, concurrently=True):
+        columns_sql = ', '.join(self.columns)
+        concurrently_sql = ' CONCURRENTLY' if concurrently else ''
+        return f"""
+            CREATE INDEX{concurrently_sql} IF NOT EXISTS {self.name}
+            ON {qualified_table_name} ({columns_sql})
+        """
+
+
+@dataclass(frozen=True)
+class CompressionPolicySpec:
+    segmentby: Tuple[str, ...]
+    orderby: Tuple[str, ...]
+    default_compress_after: str = '30 days'
+
+    def alter_table_sql(self, qualified_table_name):
+        return f"""
+            ALTER TABLE {qualified_table_name}
+            SET (
+                timescaledb.compress,
+                timescaledb.compress_segmentby = '{", ".join(self.segmentby)}',
+                timescaledb.compress_orderby = '{", ".join(self.orderby)}'
+            )
+        """
+
+    def add_policy_sql(self, qualified_table_name):
+        return f"""
+            SELECT add_compression_policy(
+                '{qualified_table_name}',
+                compress_after => CAST(:compress_after AS interval),
+                if_not_exists => TRUE
+            )
+        """
+
+
+@dataclass(frozen=True)
+class RetentionPolicySpec:
+    default_drop_after: str
+
+    def add_policy_sql(self, qualified_table_name):
+        return f"""
+            SELECT add_retention_policy(
+                '{qualified_table_name}',
+                drop_after => CAST(:drop_after AS interval),
+                if_not_exists => TRUE
+            )
+        """
+
+
+@dataclass(frozen=True)
+class OnlineHypertableMigrationSpec:
+    table_name: str
+    schema_name: str = 'public'
+    shadow_table_name: Optional[str] = None
+    rollback_table_name: Optional[str] = None
+    sync_trigger_name: Optional[str] = None
+    sync_function_name: Optional[str] = None
+    enable_trigger_function_name: Optional[str] = None
+    disable_trigger_function_name: Optional[str] = None
+    copy_function_name: Optional[str] = None
+    validate_function_name: Optional[str] = None
+    cutover_function_name: Optional[str] = None
+    rollback_function_name: Optional[str] = None
+    concurrent_indexes: Tuple[ConcurrentIndexSpec, ...] = ()
+    compression_policy: Optional[CompressionPolicySpec] = None
+    retention_policy: Optional[RetentionPolicySpec] = None
+    command_description: Optional[str] = None
+    concurrent_indexes_command_name: str = 'create-concurrent-indexes'
+    concurrent_indexes_command_aliases: Tuple[str, ...] = ()
+
+    def __post_init__(self):
+        if self.shadow_table_name is None:
+            object.__setattr__(self, 'shadow_table_name',
+                               '{}_timescaledb'.format(self.table_name))
+        if self.rollback_table_name is None:
+            object.__setattr__(self, 'rollback_table_name',
+                               '{}_old'.format(self.table_name))
+        if self.sync_trigger_name is None:
+            object.__setattr__(self, 'sync_trigger_name',
+                               'trg_sync_{}_to_timescaledb'.format(self.table_name))
+        if self.sync_function_name is None:
+            object.__setattr__(self, 'sync_function_name',
+                               'sync_{}_to_timescaledb'.format(self.table_name))
+        if self.enable_trigger_function_name is None:
+            object.__setattr__(self, 'enable_trigger_function_name',
+                               'enable_{}_sync_trigger'.format(self.table_name))
+        if self.disable_trigger_function_name is None:
+            object.__setattr__(self, 'disable_trigger_function_name',
+                               'disable_{}_sync_trigger'.format(self.table_name))
+        if self.copy_function_name is None:
+            object.__setattr__(self, 'copy_function_name',
+                               'copy_{}_range'.format(self.table_name))
+        if self.validate_function_name is None:
+            object.__setattr__(self, 'validate_function_name',
+                               'validate_{}_range'.format(self.table_name))
+        if self.cutover_function_name is None:
+            object.__setattr__(self, 'cutover_function_name',
+                               'cutover_{}_to_timescaledb'.format(self.table_name))
+        if self.rollback_function_name is None:
+            object.__setattr__(self, 'rollback_function_name',
+                               'rollback_{}_timescaledb_cutover'.format(self.table_name))
+        if self.command_description is None:
+            object.__setattr__(
+                self,
+                'command_description',
+                'Operate the {} TimescaleDB migration.'.format(
+                    self.table_name),
+            )
+
+    @property
+    def qualified_table_name(self):
+        return '{}.{}'.format(self.schema_name, self.table_name)
+
+    @property
+    def qualified_shadow_table_name(self):
+        return '{}.{}'.format(self.schema_name, self.shadow_table_name)
+
+    @property
+    def qualified_rollback_table_name(self):
+        return '{}.{}'.format(self.schema_name, self.rollback_table_name)
+
+    def qualified_function_name(self, function_name):
+        return '{}.{}'.format(self.schema_name, function_name)
+
+    def status_query(self):
+        return """
+            SELECT
+                to_regclass(:live_table) AS live_table,
+                to_regclass(:shadow_table) AS shadow_table,
+                to_regclass(:rollback_table) AS rollback_table,
+                EXISTS (
+                    SELECT 1
+                    FROM pg_trigger
+                    WHERE tgname = :sync_trigger_name
+                      AND tgrelid = CAST(:live_table AS regclass)
+                      AND NOT tgisinternal
+                ) AS sync_trigger_enabled
+        """
+
+    def status_query_params(self):
+        return {
+            'live_table': self.qualified_table_name,
+            'shadow_table': self.qualified_shadow_table_name,
+            'rollback_table': self.qualified_rollback_table_name,
+            'sync_trigger_name': self.sync_trigger_name,
+        }
+
+
+class OnlineHypertableMigrationOperator:
+    def __init__(self, spec):
+        self.spec = spec
+
+    def run_query(self, query, params=None):
+        with get_engine().begin() as connection:
+            return connection.execute(sqlalchemy.text(query), params or {})
+
+    def is_hypertable(self, connection):
+        row = connection.execute(
+            sqlalchemy.text(
+                """
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM timescaledb_information.hypertables
+                    WHERE hypertable_schema = :schema_name
+                      AND hypertable_name = :table_name
+                ) AS is_hypertable
+                """
+            ),
+            {
+                'schema_name': self.spec.schema_name,
+                'table_name': self.spec.table_name,
+            },
+        ).mappings().one()
+        return row['is_hypertable']
+
+    def run_copy_range(self, args):
+        row = self.run_query(
+            "SELECT * FROM {}(:range_start, :range_end)".format(
+                self.spec.qualified_function_name(self.spec.copy_function_name)
+            ),
+            {
+                'range_start': parse_datetime(args.range_start),
+                'range_end': parse_datetime(args.range_end),
+            }
+        ).mappings().one()
+        print_row(row)
+        if args.fail_on_mismatch and not row['counts_match']:
+            raise SystemExit(1)
+
+    def run_validate_range(self, args):
+        row = self.run_query(
+            "SELECT * FROM {}(:range_start, :range_end)".format(
+                self.spec.qualified_function_name(
+                    self.spec.validate_function_name)
+            ),
+            {
+                'range_start': parse_datetime(args.range_start),
+                'range_end': parse_datetime(args.range_end),
+            }
+        ).mappings().one()
+        print_row(row)
+        if args.fail_on_mismatch and not row['counts_match']:
+            raise SystemExit(1)
+
+    def run_backfill(self, args):
+        start = parse_datetime(args.range_start)
+        end = parse_datetime(args.range_end)
+        batch = parse_interval_hours(args.batch_hours)
+        sleep_seconds = float(args.sleep_seconds)
+        current = start
+
+        while current < end:
+            batch_end = min(current + batch, end)
+            print('copying {} -> {}'.format(current.isoformat(), batch_end.isoformat()))
+            row = self.run_query(
+                "SELECT * FROM {}(:range_start, :range_end)".format(
+                    self.spec.qualified_function_name(
+                        self.spec.copy_function_name)
+                ),
+                {'range_start': current, 'range_end': batch_end}
+            ).mappings().one()
+            print_row(row, prefix='  ')
+            if args.fail_on_mismatch and not row['counts_match']:
+                raise SystemExit(1)
+            current = batch_end
+            if current < end and sleep_seconds > 0:
+                time.sleep(sleep_seconds)
+
+    def run_status(self, _args):
+        row = self.run_query(
+            self.spec.status_query(),
+            self.spec.status_query_params(),
+        ).mappings().one()
+        print_row(row)
+
+    def run_cutover(self, _args):
+        self.run_query(
+            "SELECT {}()".format(
+                self.spec.qualified_function_name(
+                    self.spec.cutover_function_name)
+            )
+        )
+        print('cutover completed')
+
+    def run_rollback(self, _args):
+        self.run_query(
+            "SELECT {}()".format(
+                self.spec.qualified_function_name(
+                    self.spec.rollback_function_name)
+            )
+        )
+        print('rollback completed')
+
+    def run_create_concurrent_indexes(self, _args):
+        if not self.spec.concurrent_indexes:
+            print('no concurrent indexes configured')
+            return
+        engine = get_engine()
+        with engine.connect().execution_options(isolation_level='AUTOCOMMIT') as connection:
+            use_concurrent_create = not self.is_hypertable(connection)
+            for index_spec in self.spec.concurrent_indexes:
+                connection.execute(sqlalchemy.text(
+                    index_spec.create_sql(
+                        self.spec.qualified_table_name,
+                        concurrently=use_concurrent_create,
+                    )
+                ))
+        if use_concurrent_create:
+            print('concurrent indexes ensured')
+        else:
+            print(
+                'indexes ensured without CONCURRENTLY because target table is a hypertable')
+
+    def run_add_compression_policy(self, args):
+        if self.spec.compression_policy is None:
+            raise SystemExit(
+                'compression policy is not configured for {}'.format(self.spec.table_name))
+        try:
+            self.run_query(
+                self.spec.compression_policy.alter_table_sql(
+                    self.spec.qualified_table_name)
+            )
+            self.run_query(
+                self.spec.compression_policy.add_policy_sql(
+                    self.spec.qualified_table_name),
+                {'compress_after': args.compress_after}
+            )
+        except sqlalchemy.exc.DBAPIError as exc:
+            raise SystemExit(
+                'compression is not supported by the current TimescaleDB build/license; '
+                'skip add-compression-policy or use a build that supports compression'
+            ) from exc
+        print('compression policy ensured: {}'.format(args.compress_after))
+
+    def run_add_retention_policy(self, args):
+        if self.spec.retention_policy is None:
+            raise SystemExit(
+                'retention policy is not configured for {}'.format(self.spec.table_name))
+        self.run_query(
+            self.spec.retention_policy.add_policy_sql(
+                self.spec.qualified_table_name),
+            {'drop_after': args.drop_after}
+        )
+        print('retention policy ensured: {}'.format(args.drop_after))
+
+    def build_parser(self):
+        parser = argparse.ArgumentParser(
+            description=self.spec.command_description)
+        subparsers = parser.add_subparsers(dest='command', required=True)
+
+        copy_range = subparsers.add_parser('copy-range')
+        copy_range.add_argument('--from', dest='range_start', required=True)
+        copy_range.add_argument('--to', dest='range_end', required=True)
+        copy_range.add_argument('--fail-on-mismatch', action='store_true')
+        copy_range.set_defaults(func=self.run_copy_range)
+
+        validate_range = subparsers.add_parser('validate-range')
+        validate_range.add_argument(
+            '--from', dest='range_start', required=True)
+        validate_range.add_argument('--to', dest='range_end', required=True)
+        validate_range.add_argument('--fail-on-mismatch', action='store_true')
+        validate_range.set_defaults(func=self.run_validate_range)
+
+        backfill = subparsers.add_parser('backfill')
+        backfill.add_argument('--from', dest='range_start', required=True)
+        backfill.add_argument('--to', dest='range_end', required=True)
+        backfill.add_argument('--batch-hours', default='2')
+        backfill.add_argument('--sleep-seconds', default='0')
+        backfill.add_argument('--fail-on-mismatch', action='store_true')
+        backfill.set_defaults(func=self.run_backfill)
+
+        status = subparsers.add_parser('status')
+        status.set_defaults(func=self.run_status)
+
+        cutover = subparsers.add_parser('cutover')
+        cutover.set_defaults(func=self.run_cutover)
+
+        rollback = subparsers.add_parser('rollback')
+        rollback.set_defaults(func=self.run_rollback)
+
+        concurrent_indexes = subparsers.add_parser(
+            self.spec.concurrent_indexes_command_name,
+            aliases=list(self.spec.concurrent_indexes_command_aliases),
+        )
+        concurrent_indexes.set_defaults(
+            func=self.run_create_concurrent_indexes)
+
+        add_compression_policy = subparsers.add_parser(
+            'add-compression-policy')
+        default_compress_after = (
+            self.spec.compression_policy.default_compress_after
+            if self.spec.compression_policy is not None else
+            '30 days'
+        )
+        add_compression_policy.add_argument(
+            '--compress-after',
+            default=default_compress_after,
+        )
+        add_compression_policy.set_defaults(
+            func=self.run_add_compression_policy)
+
+        add_retention_policy = subparsers.add_parser(
+            'add-retention-policy')
+        if self.spec.retention_policy is not None:
+            add_retention_policy.add_argument(
+                '--drop-after',
+                default=self.spec.retention_policy.default_drop_after,
+            )
+        else:
+            add_retention_policy.add_argument(
+                '--drop-after',
+                required=True,
+            )
+        add_retention_policy.set_defaults(
+            func=self.run_add_retention_policy)
+
+        return parser
+
+    def main(self, argv=None):
+        args = self.build_parser().parse_args(argv)
+        args.func(args)
+        return 0
+
+
+SIRI_VEHICLE_LOCATION_SPEC = OnlineHypertableMigrationSpec(
+    table_name='siri_vehicle_location',
+    concurrent_indexes=(
+        ConcurrentIndexSpec(
+            name='ix_siri_vehicle_location_lat', columns=('lat',)),
+        ConcurrentIndexSpec(
+            name='ix_siri_vehicle_location_lon', columns=('lon',)),
+    ),
+    compression_policy=CompressionPolicySpec(
+        segmentby=('siri_snapshot_id',),
+        orderby=('recorded_at_time DESC', 'siri_ride_stop_id', 'id DESC'),
+    ),
+    concurrent_indexes_command_aliases=('create-indexes',),
+)

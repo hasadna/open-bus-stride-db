@@ -25,7 +25,7 @@ def get_db():
             "-e", "POSTGRES_USER=postgres",
             "-e", "POSTGRES_PASSWORD=123456",
             "-p", "5432:5432",
-            "-d", "postgres:14"
+            "-d", "timescale/timescaledb:2.19.3-pg14"
         ])
         time.sleep(3)
 
