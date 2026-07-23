@@ -154,6 +154,12 @@ docker run --rm --network host \
     open_bus_stride_db
 ```
 
+**Note:** the first run after a restore only imports the SQL dump - it does not
+also run `alembic upgrade head` in that same run (see `entrypoint.sh`). If any
+migrations have been added since the backup was taken, run the exact same
+command a second time: it will detect that `alembic_version` already exists
+and run the migrations, bringing the restored DB up to the latest schema.
+
 ### Using the backup Docker image
 
 The backup Docker image is used to create a DB backup which provides developers with a 
