@@ -165,11 +165,11 @@ Build the DB backup image and create a local backup:
 docker build -t open_bus_stride_db_backup backup &&\
 docker run \
     -e PGPASSWORD=123456 \
-    -e HOSTNAME=localhost \
-    -e USER=postgres \
-    -e DB=postgres \
-    -e SCHEMA=public \
-    -e FILENAME=/mnt/stride_db.sql.gz \
+    -e PG_BACKUP_HOSTNAME=localhost \
+    -e PG_BACKUP_USER=postgres \
+    -e PG_BACKUP_DB=postgres \
+    -e PG_BACKUP_SCHEMA=public \
+    -e PG_BACKUP_FILENAME=/mnt/stride_db.sql.gz \
     -v `pwd`/.data/backup:/mnt \
     --network host \
     open_bus_stride_db_backup
