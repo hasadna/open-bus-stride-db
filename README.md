@@ -196,3 +196,34 @@ Created files:
 
 * `dbschema.png`
 * `DATA_MODEL.md`
+
+### ClickHouse
+
+ClickHouse is an additional database; its schema and migrations are managed by
+[open-bus-stride-clickhouse](https://github.com/hasadna/open-bus-stride-clickhouse).
+Set `CLICKHOUSE_URL` (default `http://localhost:18123`), `CLICKHOUSE_DATABASE`
+(default `default`), `CLICKHOUSE_USER` (default `default`) and
+`CLICKHOUSE_PASSWORD` (default empty) for your environment.
+
+```python
+from open_bus_stride_db.clickhouse import get_session
+from open_bus_stride_db.clickhouse.models import SiriVehicleLocation
+
+with get_session() as session:
+    rows = session.query(SiriVehicleLocation).limit(10).all()
+```
+
+SQLAlchemy ORM mappings are available in `open_bus_stride_db.clickhouse.models`.
+ORM identity keys are not enforced by ClickHouse; use column queries when duplicate keys must be retained. This integration does not create tables or synchronize PostgreSQL data.
+
+
+To update the ClickHouse ORM mappings after an upstream schema change, configure
+ClickHouse access as above and run `python bin/generate_clickhouse_models.py`.
+Review the generated diff. The script discovers tables and
+views. Objects without a ClickHouse primary key are exposed as SQLAlchemy Core tables. ClickHouse primary keys do not guarantee uniqueness, so ORM queries may collapse rows with the same key. It stops on missing
+objects, identity columns, or unsupported types before writing the models.
+
+
+To run the ClickHouse tests, use `python -m unittest tests.test_clickhouse`.
+Set `CLICKHOUSE_INTEGRATION_TEST=1` along with the connection variables above to
+also run the live database check; the ClickHouse SQLAlchemy dialect must be installed.
